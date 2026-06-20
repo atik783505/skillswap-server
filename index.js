@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 const app = express()
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const port = process.env.PORT
 
 app.use(cors());
@@ -20,11 +20,12 @@ const client = new MongoClient(uri, {
 });
 async function run() {
     try {
+        
+        await client.connect();
 
         const database = client.db('skillswap')
         const taskscollection = database.collection('tasks')
 
-        await client.connect();
         await client.db("admin").command({ ping: 1 });
 
         app.post('/api/tasks',async (req,res) => {
@@ -33,7 +34,20 @@ async function run() {
             const result = await taskscollection.insertOne(task)
             res.send(result)
         })
-
+        app.get('/api/tasks', async (req,res) => {
+            const query = {}
+            if(req.query.clientId){
+                query.clientId=req.query.clientId
+            }
+            const result = await taskscollection.find(query).toArray()
+            res.send(result)
+        })
+        app.delete('/api/tasks/:id' , async (req,res) => {
+            const {id} = req.params
+            const query = {_id : new ObjectId(id)} 
+            const result = await taskscollection.deleteOne(query)
+            res.send(result)
+        } )
 
 
 
