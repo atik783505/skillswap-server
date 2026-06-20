@@ -29,8 +29,9 @@ async function run() {
 
         app.post('/api/tasks',async (req,res) => {
             const task = req.body
+            task.createdAt = new Date();
             const result = await taskscollection.insertOne(task)
-
+            res.send(result)
         })
 
 
