@@ -25,7 +25,7 @@ async function run() {
 
         const database = client.db('skillswap')
         const taskscollection = database.collection('tasks')
-        const proposalscollection = database.collection('proposals') 
+        const proposalscollection = database.collection('proposals')
 
         await client.db("admin").command({ ping: 1 });
 
@@ -43,7 +43,7 @@ async function run() {
             const result = await taskscollection.find(query).toArray()
             res.send(result)
         })
-        app.get('/api/all-tasks', async (req,res) => {
+        app.get('/api/all-tasks', async (req, res) => {
             const result = await taskscollection.find().toArray()
             res.send(result)
         })
@@ -76,6 +76,47 @@ async function run() {
                 console.error("Error updating task:", error);
                 res.status(500).send({ success: false, message: "Internal server error" });
             }
+        });
+
+        app.post('/api/proposals', async (req, res) => {
+            const proposals = req.body
+            proposals.createdAt = new Date();
+            const result = await proposalscollection.insertOne(proposals)
+            res.send(result)
+        })
+        app.get('/api/proposals/check', async (req, res) => {
+            const { freelancerId, taskId } = req.query;
+
+            const taskIdString = taskId.toString();
+            const existing = await proposalscollection.findOne({
+                freelancerId: freelancerId,
+                taskId: taskIdString
+            });
+
+            res.send({ submitted: !!existing });
+        });
+        app.get('/api/my-proposals', async (req, res) => {
+            const { freelancerEmail } = req.query;
+
+            const result = await proposalscollection.aggregate([
+                { $match: { freelancerEmail : freelancerEmail } },
+                {
+                    $addFields: {
+                        taskIdObj: { $toObjectId: "$taskId" } 
+                    }
+                },
+                {
+                    $lookup: {
+                        from: "tasks", 
+                        localField: "taskIdObj",
+                        foreignField: "_id",
+                        as: "taskDetails"
+                    }
+                },
+                { $unwind: "$taskDetails" }
+            ]).toArray();
+
+            res.send(result);
         });
 
 
