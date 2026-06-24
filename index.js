@@ -26,6 +26,7 @@ async function run() {
         const database = client.db('skillswap')
         const taskscollection = database.collection('tasks')
         const proposalscollection = database.collection('proposals')
+        const usersCollection = database.collection('user')
 
         await client.db("admin").command({ ping: 1 });
 
@@ -99,21 +100,88 @@ async function run() {
             const { freelancerEmail } = req.query;
 
             const result = await proposalscollection.aggregate([
-                { $match: { freelancerEmail : freelancerEmail } },
+                { $match: { freelancerEmail: freelancerEmail } },
                 {
                     $addFields: {
-                        taskIdObj: { $toObjectId: "$taskId" } 
+                        taskIdObj: { $toObjectId: "$taskId" }
                     }
                 },
                 {
                     $lookup: {
-                        from: "tasks", 
+                        from: "tasks",
                         localField: "taskIdObj",
                         foreignField: "_id",
                         as: "taskDetails"
                     }
                 },
                 { $unwind: "$taskDetails" }
+            ]).toArray();
+
+            res.send(result);
+        });
+
+        app.get('/api/my-proposals/:id', async (req, res) => {
+            const { id } = req.params;
+            const query = { _id: new ObjectId(id) };
+
+            const result = await proposalscollection.aggregate([
+                { $match: query },
+                {
+                    $addFields: {
+                        taskIdObj: { $toObjectId: "$taskId" }
+                    }
+                },
+                {
+                    $lookup: {
+                        from: "tasks",
+                        localField: "taskIdObj",
+                        foreignField: "_id",
+                        as: "taskDetails"
+                    }
+                },
+                { $unwind: "$taskDetails" }
+            ]).toArray();
+
+            if (result.length > 0) {
+                res.send(result[0]);
+            } else {
+                res.status(404).send({ message: "Proposal not found" });
+            }
+        });
+        app.get('/api/client-proposals/:clientId', async (req, res) => {
+            const { clientId } = req.params;
+
+            const result = await proposalscollection.aggregate([
+
+                { $addFields: { taskIdObj: { $toObjectId: "$taskId" } } },
+                {
+                    $lookup: {
+                        from: "tasks",
+                        localField: "taskIdObj",
+                        foreignField: "_id",
+                        as: "taskDetails"
+                    }
+                },
+                { $unwind: "$taskDetails" },
+
+
+                { $match: { "taskDetails.clientId": clientId } },
+
+
+                {
+                    $lookup: {
+                        from: "user",
+                        localField: "freelancerEmail",
+                        foreignField: "email",
+                        as: "freelancerDetails"
+                    }
+                },
+                {
+                    $addFields: {
+                        freelancerInfo: { $arrayElemAt: ["$freelancerDetails", 0] }
+                    }
+                },
+                { $project: { freelancerDetails: 0 } }
             ]).toArray();
 
             res.send(result);
