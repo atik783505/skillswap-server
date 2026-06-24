@@ -85,16 +85,27 @@ async function run() {
             const result = await proposalscollection.insertOne(proposals)
             res.send(result)
         })
-        app.get('/api/proposals/check', async (req, res) => {
-            const { freelancerId, taskId } = req.query;
+        app.get('/api/proposals/:taskId', async (req, res) => {
+            const { taskId } = req.params;
+            const result = await proposalscollection.find({ taskId }).toArray();
+            res.send(result);
+        });
+        app.get('/api/proposals/check/:freelancerId', async (req, res) => {
+            const { freelancerId } = req.params; 
+            const { taskId } = req.query;      
+            try {
 
-            const taskIdString = taskId.toString();
-            const existing = await proposalscollection.findOne({
-                freelancerId: freelancerId,
-                taskId: taskIdString
-            });
+                const proposals = await proposalscollection.find({ freelancerId: freelancerId }).toArray();
 
-            res.send({ submitted: !!existing });
+                const isSubmitted = proposals.some(p => p.taskId === taskId);
+
+                res.send({
+                    submitted: isSubmitted,
+                });
+
+            } catch (error) {
+                res.status(500).send({ error: "Something went wrong" });
+            }
         });
         app.get('/api/my-proposals', async (req, res) => {
             const { freelancerEmail } = req.query;
