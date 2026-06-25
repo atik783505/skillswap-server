@@ -91,8 +91,8 @@ async function run() {
             res.send(result);
         });
         app.get('/api/proposals/check/:freelancerId', async (req, res) => {
-            const { freelancerId } = req.params; 
-            const { taskId } = req.query;      
+            const { freelancerId } = req.params;
+            const { taskId } = req.query;
             try {
 
                 const proposals = await proposalscollection.find({ freelancerId: freelancerId }).toArray();
@@ -197,7 +197,29 @@ async function run() {
 
             res.send(result);
         });
+        app.get('/api/users-data', async (req, res) => {
+            const result = await usersCollection.find().toArray()
+            res.send(result)
+        })
+        app.patch('/api/user-data/:id', async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { isBlocked } = req.body; 
 
+                const result = await usersCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { isBlocked: isBlocked } }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).send({ message: "User not found" });
+                }
+
+                res.send({ success: true, message: "User status updated successfully" });
+            } catch (error) {
+                res.status(500).send({ message: "Internal server error" });
+            }
+        });
 
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
