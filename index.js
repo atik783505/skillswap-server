@@ -27,6 +27,7 @@ async function run() {
         const taskscollection = database.collection('tasks')
         const proposalscollection = database.collection('proposals')
         const usersCollection = database.collection('user')
+        const paymentsCollection = database.collection('payments')
 
         await client.db("admin").command({ ping: 1 });
 
@@ -89,6 +90,28 @@ async function run() {
             const { taskId } = req.params;
             const result = await proposalscollection.find({ taskId }).toArray();
             res.send(result);
+        });
+        app.post('/api/save-payment', async (req, res) => {
+            try {
+                const paymentData = req.body; 
+                paymentData.paid_at = new Date();
+
+                await paymentsCollection.insertOne(paymentData);
+
+                await proposalscollection.updateOne(
+                    { taskId: paymentData.task_id }, 
+                    { $set: { status: 'accepted' } }
+                );
+                await taskscollection.updateOne(
+                    { _id: new ObjectId(paymentData.task_id) },
+                    { $set: { status: 'in progress' } }
+                );
+
+                res.status(201).send({ success: true, message: "Payment processed and statuses updated" });
+            } catch (error) {
+                console.error("Error updating status:", error);
+                res.status(500).send({ success: false, message: "Failed to process payment" });
+            }
         });
         app.get('/api/proposals/check/:freelancerId', async (req, res) => {
             const { freelancerId } = req.params;
@@ -204,7 +227,7 @@ async function run() {
         app.patch('/api/user-data/:id', async (req, res) => {
             try {
                 const { id } = req.params;
-                const { isBlocked } = req.body; 
+                const { isBlocked } = req.body;
 
                 const result = await usersCollection.updateOne(
                     { _id: new ObjectId(id) },
@@ -218,6 +241,28 @@ async function run() {
                 res.send({ success: true, message: "User status updated successfully" });
             } catch (error) {
                 res.status(500).send({ message: "Internal server error" });
+            }
+        });
+        app.delete('/api/manage-tasks/:id', async (req, res) => {
+            const { id } = req.params
+            const query = { _id: new ObjectId(id) }
+            const result = await taskscollection.deleteOne(query)
+            res.send(result)
+        })
+        app.get('/api/admin/stats', async (req, res) => {
+            try {
+                const totalUsers = await usersCollection.countDocuments();
+                const totalTasks = await taskscollection.countDocuments();
+                const inProgressTasks = await taskscollection.countDocuments({ status: 'in progress' });
+
+                res.send({
+                    totalUsers,
+                    totalTasks,
+                    inProgressTasks
+                });
+            } catch (error) {
+                console.error("Error fetching stats:", error);
+                res.status(500).send({ message: "Failed to fetch dashboard stats" });
             }
         });
 
