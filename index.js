@@ -46,8 +46,12 @@ async function run() {
             res.send(result)
         })
         app.get('/api/all-tasks', async (req, res) => {
-            const result = await taskscollection.find().toArray()
-            res.send(result)
+            const {page=1,limit=9} = req.query
+            const skip = (Number(page)-1) * Number(limit)
+            const result = await taskscollection.find().skip(skip).limit(Number(limit)).toArray()
+            const totalTask = await taskscollection.countDocuments()
+            const totalPage = Math.ceil(totalTask / limit)
+            res.send({data:result,totalPage:totalPage,page:page})
         })
         app.get('/api/tasks/:id', async (req, res) => {
             const { id } = req.params
