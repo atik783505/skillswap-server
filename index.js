@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 const app = express()
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { jwtVerify, createRemoteJWKSet } = require('jose-cjs');
 const port = process.env.PORT
 
 app.use(cors());
@@ -10,7 +11,6 @@ app.use(express.json());
 
 
 const uri = process.env.MONGODB_URI;
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
     serverApi: {
         version: ServerApiVersion.v1,
@@ -18,6 +18,28 @@ const client = new MongoClient(uri, {
         deprecationErrors: true,
     }
 });
+
+
+const verifyToken = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ message: "Unauthorized: No token provided" });
+    }
+    const token = authHeader.split(" ")[1];
+    try {
+        const JWKS = createRemoteJWKSet(
+            new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
+        );
+        const { payload } = await jwtVerify(token, JWKS);
+        console.log(payload)
+        req.user = payload;
+        next();
+    } catch (error) {
+        console.error("Token validation failed:", error.message);
+        return res.status(401).json({ message: "Unauthorized: Invalid or expired token" });
+    }
+};
+
 async function run() {
     try {
 
@@ -31,13 +53,13 @@ async function run() {
 
         await client.db("admin").command({ ping: 1 });
 
-        app.post('/api/tasks', async (req, res) => {
+        app.post('/api/tasks', verifyToken, async (req, res) => {
             const task = req.body
             task.createdAt = new Date();
             const result = await taskscollection.insertOne(task)
             res.send(result)
         })
-        app.get('/api/tasks', async (req, res) => {
+        app.get('/api/tasks', verifyToken, async (req, res) => {
             const query = {}
             if (req.query.clientId) {
                 query.clientId = req.query.clientId
@@ -46,12 +68,12 @@ async function run() {
             res.send(result)
         })
         app.get('/api/all-tasks', async (req, res) => {
-            const {page=1,limit=9} = req.query
-            const skip = (Number(page)-1) * Number(limit)
+            const { page = 1, limit = 9 } = req.query
+            const skip = (Number(page) - 1) * Number(limit)
             const result = await taskscollection.find().skip(skip).limit(Number(limit)).toArray()
             const totalTask = await taskscollection.countDocuments()
             const totalPage = Math.ceil(totalTask / limit)
-            res.send({data:result,totalPage:totalPage,page:page})
+            res.send({ data: result, totalPage: totalPage, page: page })
         })
         app.get('/api/tasks/:id', async (req, res) => {
             const { id } = req.params
