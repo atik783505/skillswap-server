@@ -91,45 +91,23 @@ async function run() {
             const result = await proposalscollection.find({ taskId }).toArray();
             res.send(result);
         });
-        // app.post('/api/save-payment', async (req, res) => {
-        //     try {
-        //         const paymentData = req.body; 
-        //         paymentData.paid_at = new Date();
-
-        //         await paymentsCollection.insertOne(paymentData);
-
-        //         await proposalscollection.updateOne(
-        //             { taskId: paymentData.task_id }, 
-        //             { $set: { status: 'accepted' } }
-        //         );
-        //         await taskscollection.updateOne(
-        //             { _id: new ObjectId(paymentData.task_id) },
-        //             { $set: { status: 'in progress' } }
-        //         );
-
-        //         res.status(201).send({ success: true, message: "Payment processed and statuses updated" });
-        //     } catch (error) {
-        //         console.error("Error updating status:", error);
-        //         res.status(500).send({ success: false, message: "Failed to process payment" });
-        //     }
-        // });
         app.post('/api/save-payment', async (req, res) => {
             try {
                 const paymentData = req.body;
-                paymentData.paid_at = new Date();
+                const existingPayment = await paymentsCollection.findOne({
+                    transaction_id: paymentData.transaction_id
+                });
 
-                // ১. পেমেন্ট রেকর্ড সেভ করা
+                if (existingPayment) {
+                    return res.status(200).send({ success: true, message: "Payment already processed." });
+                }
+                paymentData.paid_at = new Date();
                 await paymentsCollection.insertOne(paymentData);
 
-                // ২. বর্তমান প্রপোজালটিকে 'accepted' করা
-                // (পেমেন্টের মেটাডেটা থেকে proposal_id পাওয়াটা সবচেয়ে নিরাপদ)
                 const updatedProposal = await proposalscollection.updateOne(
                     { _id: new ObjectId(paymentData.proposal_id) },
                     { $set: { status: 'accepted' } }
                 );
-
-                // ৩. একই টাস্কের অন্য সব প্রপোজালকে 'rejected' করা
-                // লজিক: taskId মিলবে কিন্তু _id হবে বর্তমানটির সমান নয়
                 await proposalscollection.updateMany(
                     {
                         taskId: paymentData.task_id,
@@ -138,7 +116,6 @@ async function run() {
                     { $set: { status: 'rejected' } }
                 );
 
-                // ৪. টাস্কের স্ট্যাটাস 'in progress' করা
                 await taskscollection.updateOne(
                     { _id: new ObjectId(paymentData.task_id) },
                     { $set: { status: 'in progress' } }
@@ -148,6 +125,29 @@ async function run() {
             } catch (error) {
                 console.error("Error processing payment:", error);
                 res.status(500).send({ success: false, message: "Failed to process payment" });
+            }
+        });
+        app.patch('/api/proposals/complete-task', async (req, res) => {
+            try {
+                const { taskId, deliverable_url } = req.body;
+                const result = await taskscollection.updateOne(
+                    { _id: new ObjectId(taskId) },
+                    {
+                        $set: {
+                            deliverable_url: deliverable_url,
+                            status: 'completed'
+                        }
+                    }
+                );
+
+                if (result.matchedCount > 0) {
+                    res.status(200).send({ success: true, message: "Task completed successfully" });
+                } else {
+                    res.status(404).send({ success: false, message: "Task not found" });
+                }
+            } catch (error) {
+                console.error("Error completing task:", error);
+                res.status(500).send({ success: false, message: "Internal server error" });
             }
         });
         app.get('/api/proposals/check/:freelancerId', async (req, res) => {
