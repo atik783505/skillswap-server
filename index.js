@@ -31,7 +31,7 @@ const verifyToken = async (req, res, next) => {
             new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
         );
         const { payload } = await jwtVerify(token, JWKS);
-        console.log(payload)
+        // console.log(payload)
         req.user = payload;
         next();
     } catch (error) {
@@ -39,6 +39,28 @@ const verifyToken = async (req, res, next) => {
         return res.status(401).json({ message: "Unauthorized: Invalid or expired token" });
     }
 };
+
+const clientVerify = async (req, res, next) => {
+    const user = req.user
+    if (user.role !== 'client') {
+        return res.status(403).json({ message: "forbidden" });
+    }
+    next()
+}
+const freelancerVerify = async (req, res, next) => {
+    const user = req.user
+    if (user.role !== 'freelancer') {
+        return res.status(403).json({ message: "forbidden" });
+    }
+    next()
+}
+const adminVerify = async (req, res, next) => {
+    const user = req.user
+    if (user.role !== 'admin') {
+        return res.status(403).json({ message: "forbidden" });
+    }
+    next()
+}
 
 async function run() {
     try {
@@ -53,7 +75,7 @@ async function run() {
 
         await client.db("admin").command({ ping: 1 });
 
-        app.post('/api/tasks', verifyToken, async (req, res) => {
+        app.post('/api/tasks', verifyToken, clientVerify, async (req, res) => {
             const task = req.body
             task.createdAt = new Date();
             const result = await taskscollection.insertOne(task)
@@ -80,7 +102,7 @@ async function run() {
             const result = await taskscollection.findOne({ _id: new ObjectId(id) })
             res.send(result)
         })
-        app.delete('/api/tasks/:id', async (req, res) => {
+        app.delete('/api/tasks/:id',verifyToken, async (req, res) => {
             const { id } = req.params
             const query = { _id: new ObjectId(id) }
             const result = await taskscollection.deleteOne(query)
