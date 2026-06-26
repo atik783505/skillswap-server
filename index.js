@@ -91,25 +91,62 @@ async function run() {
             const result = await proposalscollection.find({ taskId }).toArray();
             res.send(result);
         });
+        // app.post('/api/save-payment', async (req, res) => {
+        //     try {
+        //         const paymentData = req.body; 
+        //         paymentData.paid_at = new Date();
+
+        //         await paymentsCollection.insertOne(paymentData);
+
+        //         await proposalscollection.updateOne(
+        //             { taskId: paymentData.task_id }, 
+        //             { $set: { status: 'accepted' } }
+        //         );
+        //         await taskscollection.updateOne(
+        //             { _id: new ObjectId(paymentData.task_id) },
+        //             { $set: { status: 'in progress' } }
+        //         );
+
+        //         res.status(201).send({ success: true, message: "Payment processed and statuses updated" });
+        //     } catch (error) {
+        //         console.error("Error updating status:", error);
+        //         res.status(500).send({ success: false, message: "Failed to process payment" });
+        //     }
+        // });
         app.post('/api/save-payment', async (req, res) => {
             try {
-                const paymentData = req.body; 
+                const paymentData = req.body;
                 paymentData.paid_at = new Date();
 
+                // ১. পেমেন্ট রেকর্ড সেভ করা
                 await paymentsCollection.insertOne(paymentData);
 
-                await proposalscollection.updateOne(
-                    { taskId: paymentData.task_id }, 
+                // ২. বর্তমান প্রপোজালটিকে 'accepted' করা
+                // (পেমেন্টের মেটাডেটা থেকে proposal_id পাওয়াটা সবচেয়ে নিরাপদ)
+                const updatedProposal = await proposalscollection.updateOne(
+                    { _id: new ObjectId(paymentData.proposal_id) },
                     { $set: { status: 'accepted' } }
                 );
+
+                // ৩. একই টাস্কের অন্য সব প্রপোজালকে 'rejected' করা
+                // লজিক: taskId মিলবে কিন্তু _id হবে বর্তমানটির সমান নয়
+                await proposalscollection.updateMany(
+                    {
+                        taskId: paymentData.task_id,
+                        _id: { $ne: new ObjectId(paymentData.proposal_id) }
+                    },
+                    { $set: { status: 'rejected' } }
+                );
+
+                // ৪. টাস্কের স্ট্যাটাস 'in progress' করা
                 await taskscollection.updateOne(
                     { _id: new ObjectId(paymentData.task_id) },
                     { $set: { status: 'in progress' } }
                 );
 
-                res.status(201).send({ success: true, message: "Payment processed and statuses updated" });
+                res.status(201).send({ success: true, message: "Payment processed, proposal accepted, and others rejected" });
             } catch (error) {
-                console.error("Error updating status:", error);
+                console.error("Error processing payment:", error);
                 res.status(500).send({ success: false, message: "Failed to process payment" });
             }
         });
