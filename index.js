@@ -65,7 +65,7 @@ const adminVerify = async (req, res, next) => {
 async function run() {
     try {
 
-        await client.connect();
+        // await client.connect();
 
         const database = client.db('skillswap')
         const taskscollection = database.collection('tasks')
@@ -73,7 +73,7 @@ async function run() {
         const usersCollection = database.collection('user')
         const paymentsCollection = database.collection('payments')
 
-        await client.db("admin").command({ ping: 1 });
+        // await client.db("admin").command({ ping: 1 });
 
         app.post('/api/tasks', verifyToken, clientVerify, async (req, res) => {
             const task = req.body
