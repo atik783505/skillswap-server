@@ -75,6 +75,22 @@ async function run() {
 
         // await client.db("admin").command({ ping: 1 });
 
+        // piblic
+
+        app.get('/api/all-tasks', async (req, res) => {
+            const { page = 1, limit = 9 } = req.query
+            const skip = (Number(page) - 1) * Number(limit)
+            const result = await taskscollection.find().skip(skip).limit(Number(limit)).toArray()
+            const totalTask = await taskscollection.countDocuments()
+            const totalPage = Math.ceil(totalTask / limit)
+            res.send({ data: result, totalPage: totalPage, page: page })
+        })
+        app.get('/api/freelancerInfo' , async (req, res) => {
+            const query = {role : 'freelancer'}
+            const result = await usersCollection.find(query).toArray()
+            res.send(result)
+        })
+
         app.post('/api/tasks', verifyToken, clientVerify, async (req, res) => {
             const task = req.body
             task.createdAt = new Date();
@@ -89,20 +105,12 @@ async function run() {
             const result = await taskscollection.find(query).toArray()
             res.send(result)
         })
-        app.get('/api/all-tasks', async (req, res) => {
-            const { page = 1, limit = 9 } = req.query
-            const skip = (Number(page) - 1) * Number(limit)
-            const result = await taskscollection.find().skip(skip).limit(Number(limit)).toArray()
-            const totalTask = await taskscollection.countDocuments()
-            const totalPage = Math.ceil(totalTask / limit)
-            res.send({ data: result, totalPage: totalPage, page: page })
-        })
         app.get('/api/tasks/:id', async (req, res) => {
             const { id } = req.params
             const result = await taskscollection.findOne({ _id: new ObjectId(id) })
             res.send(result)
         })
-        app.delete('/api/tasks/:id',verifyToken, async (req, res) => {
+        app.delete('/api/tasks/:id', verifyToken, async (req, res) => {
             const { id } = req.params
             const query = { _id: new ObjectId(id) }
             const result = await taskscollection.deleteOne(query)
