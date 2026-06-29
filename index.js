@@ -247,7 +247,7 @@ async function run() {
             const result = await taskscollection.insertOne(task)
             res.send(result)
         })
-        app.get('/api/tasks', verifyToken, async (req, res) => {
+        app.get('/api/tasks', verifyToken, clientVerify, async (req, res) => {
             const query = {}
             if (req.query.clientId) {
                 query.clientId = req.query.clientId
@@ -260,14 +260,14 @@ async function run() {
             const result = await taskscollection.findOne({ _id: new ObjectId(id) })
             res.send(result)
         })
-        app.delete('/api/tasks/:id', verifyToken, async (req, res) => {
+        app.delete('/api/tasks/:id', verifyToken, clientVerify, async (req, res) => {
             const { id } = req.params
             const query = { _id: new ObjectId(id) }
             const result = await taskscollection.deleteOne(query)
             res.send(result)
         })
 
-        app.patch('/api/tasks/:id', async (req, res) => {
+        app.patch('/api/tasks/:id', verifyToken, clientVerify, async (req, res) => {
             try {
                 const { id } = req.params;
                 const updateData = req.body;
@@ -286,18 +286,18 @@ async function run() {
             }
         });
 
-        app.post('/api/proposals', async (req, res) => {
+        app.post('/api/proposals', verifyToken, freelancerVerify, async (req, res) => {
             const proposals = req.body
             proposals.createdAt = new Date();
             const result = await proposalscollection.insertOne(proposals)
             res.send(result)
         })
-        app.get('/api/proposals/:taskId', async (req, res) => {
+        app.get('/api/proposals/:taskId', verifyToken, async (req, res) => {
             const { taskId } = req.params;
             const result = await proposalscollection.find({ taskId }).toArray();
             res.send(result);
         });
-        app.post('/api/save-payment', async (req, res) => {
+        app.post('/api/save-payment', verifyToken, clientVerify, async (req, res) => {
             try {
                 const paymentData = req.body;
                 const existingPayment = await paymentsCollection.findOne({
@@ -333,7 +333,7 @@ async function run() {
                 res.status(500).send({ success: false, message: "Failed to process payment" });
             }
         });
-        app.patch('/api/proposals/complete-task', async (req, res) => {
+        app.patch('/api/proposals/complete-task', verifyToken, freelancerVerify, async (req, res) => {
             try {
                 const { taskId, deliverable_url } = req.body;
                 const result = await taskscollection.updateOne(
@@ -373,7 +373,7 @@ async function run() {
                 res.status(500).send({ error: "Something went wrong" });
             }
         });
-        app.get('/api/my-proposals', async (req, res) => {
+        app.get('/api/my-proposals', verifyToken, freelancerVerify, async (req, res) => {
             const { freelancerEmail } = req.query;
 
             const result = await proposalscollection.aggregate([
@@ -397,7 +397,7 @@ async function run() {
             res.send(result);
         });
 
-        app.get('/api/my-proposals/:id', async (req, res) => {
+        app.get('/api/my-proposals/:id', verifyToken, freelancerVerify, async (req, res) => {
             const { id } = req.params;
             const query = { _id: new ObjectId(id) };
 
@@ -425,7 +425,73 @@ async function run() {
                 res.status(404).send({ message: "Proposal not found" });
             }
         });
-        app.get('/api/client-proposals/:clientId', async (req, res) => {
+        app.get('/api/freelancer-earings', verifyToken, freelancerVerify, async (req, res) => {
+            try {
+                const { email } = req.query;
+
+                if (!email) {
+                    return res.status(400).send({ success: false, message: "Email query parameter is required" });
+                }
+
+                const query = { freelancer_email: email };
+
+                const result = await paymentsCollection.aggregate([
+                    {
+                        $match: query
+                    },
+
+                    {
+                        $lookup: {
+                            from: "tasks",
+                            let: { taskIdStr: "$task_id" },
+                            pipeline: [
+                                {
+                                    $match: {
+                                        $expr: {
+                                            $eq: ["$_id", { $toObjectId: "$$taskIdStr" }]
+                                        }
+                                    }
+                                },
+
+                                { $project: { title: 1, clientName: 1, _id: 0 } }
+                            ],
+                            as: "taskDetails"
+                        }
+                    },
+                    {
+                        $unwind: {
+                            path: "$taskDetails",
+                            preserveNullAndEmptyArrays: true
+                        }
+                    },
+
+                    {
+                        $project: {
+                            _id: 1,
+                            client_email: 1,
+                            freelancer_email: 1,
+                            task_id: 1,
+                            amount: 1,
+                            transaction_id: 1,
+                            payment_status: 1,
+                            paid_at: 1,
+                            task_title: { $ifNull: ["$taskDetails.title", "N/A"] },
+                            client_name: { $ifNull: ["$taskDetails.clientName", "N/A"] }
+                        }
+                    },
+                    {
+                        $sort: { paid_at: -1 }
+                    }
+                ]).toArray();
+
+                res.send(result);
+
+            } catch (error) {
+                console.error("Aggregation Error:", error);
+                res.status(500).send({ success: false, message: "Internal server error" });
+            }
+        });
+        app.get('/api/client-proposals/:clientId', verifyToken, clientVerify, async (req, res) => {
             const { clientId } = req.params;
 
             const result = await proposalscollection.aggregate([
@@ -463,11 +529,11 @@ async function run() {
 
             res.send(result);
         });
-        app.get('/api/users-data', async (req, res) => {
+        app.get('/api/users-data', verifyToken, adminVerify, async (req, res) => {
             const result = await usersCollection.find().toArray()
             res.send(result)
         })
-        app.patch('/api/user-data/:id', async (req, res) => {
+        app.patch('/api/user-data/:id', verifyToken, adminVerify, async (req, res) => {
             try {
                 const { id } = req.params;
                 const { isBlocked } = req.body;
@@ -486,13 +552,13 @@ async function run() {
                 res.status(500).send({ message: "Internal server error" });
             }
         });
-        app.delete('/api/manage-tasks/:id', async (req, res) => {
+        app.delete('/api/manage-tasks/:id', verifyToken, adminVerify, async (req, res) => {
             const { id } = req.params
             const query = { _id: new ObjectId(id) }
             const result = await taskscollection.deleteOne(query)
             res.send(result)
         })
-        app.get('/api/admin/stats', async (req, res) => {
+        app.get('/api/admin/stats', verifyToken, adminVerify, async (req, res) => {
             try {
                 const totalUsers = await usersCollection.countDocuments();
                 const totalTasks = await taskscollection.countDocuments();
@@ -520,10 +586,11 @@ async function run() {
                 res.status(500).send({ message: "Failed to fetch dashboard stats" });
             }
         });
-        app.get('/api/admin/transactions', async (req, res) => {
+        app.get('/api/admin/transactions', verifyToken, adminVerify, async (req, res) => {
             const result = await paymentsCollection.find().toArray()
             res.send(result)
         })
+
 
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
