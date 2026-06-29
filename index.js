@@ -76,7 +76,6 @@ async function run() {
         // await client.db("admin").command({ ping: 1 });
 
         // piblic
-
         app.get('/api/all-tasks', async (req, res) => {
             try {
                 const { page = 1, limit = 9, search = '', category = '' } = req.query;
@@ -88,10 +87,16 @@ async function run() {
                     query.category = category;
                 }
                 const skip = (Number(page) - 1) * Number(limit);
-                const result = await taskscollection.find(query).skip(skip).limit(Number(limit)).toArray();
-                const totalTask = await taskscollection.countDocuments(query);
 
+                const result = await taskscollection.find(query)
+                    .sort({ _id: -1 })
+                    .skip(skip)
+                    .limit(Number(limit))
+                    .toArray();
+
+                const totalTask = await taskscollection.countDocuments(query);
                 const totalPage = Math.ceil(totalTask / Number(limit));
+
                 res.send({
                     data: result,
                     totalPage: totalPage,
