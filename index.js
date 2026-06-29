@@ -78,18 +78,168 @@ async function run() {
         // piblic
 
         app.get('/api/all-tasks', async (req, res) => {
-            const { page = 1, limit = 9 } = req.query
-            const skip = (Number(page) - 1) * Number(limit)
-            const result = await taskscollection.find().skip(skip).limit(Number(limit)).toArray()
-            const totalTask = await taskscollection.countDocuments()
-            const totalPage = Math.ceil(totalTask / limit)
-            res.send({ data: result, totalPage: totalPage, page: page })
-        })
-        app.get('/api/freelancerInfo' , async (req, res) => {
-            const query = {role : 'freelancer'}
+            try {
+                const { page = 1, limit = 9, search = '', category = '' } = req.query;
+                const query = {};
+                if (search) {
+                    query.title = { $regex: search, $options: 'i' };
+                }
+                if (category) {
+                    query.category = category;
+                }
+                const skip = (Number(page) - 1) * Number(limit);
+                const result = await taskscollection.find(query).skip(skip).limit(Number(limit)).toArray();
+                const totalTask = await taskscollection.countDocuments(query);
+
+                const totalPage = Math.ceil(totalTask / Number(limit));
+                res.send({
+                    data: result,
+                    totalPage: totalPage,
+                    page: Number(page)
+                });
+            } catch (error) {
+                res.status(500).send({ message: "Internal Server Error", error });
+            }
+        });
+        app.get('/api/featured-tasks', async (req, res) => {
+            try {
+                const query = { status: 'open' };
+                const result = await taskscollection
+                    .find(query)
+                    .sort({ createdAt: -1 })
+                    .limit(4)
+                    .toArray();
+
+                res.status(200).send(result);
+            } catch (error) {
+                console.error("Error fetching featured tasks:", error);
+                res.status(500).send({ success: false, message: "Internal Server Error", error });
+            }
+        });
+        app.get('/api/freelancerInfo', async (req, res) => {
+            const query = { role: 'freelancer' }
             const result = await usersCollection.find(query).toArray()
             res.send(result)
         })
+        app.get('/api/freelancerInfo/:freelancerId', async (req, res) => {
+            try {
+                const { freelancerId } = req.params;
+
+                const result = await usersCollection.aggregate([
+                    { $match: { _id: new ObjectId(freelancerId), role: 'freelancer' } },
+
+                    {
+                        $lookup: {
+                            from: "proposals",
+                            let: { fId: { $toString: "$_id" } },
+                            pipeline: [
+                                { $match: { $expr: { $eq: ["$freelancerId", "$$fId"] } } },
+                                {
+                                    $addFields: {
+                                        taskIdObj: { $toObjectId: "$taskId" }
+                                    }
+                                },
+                                {
+                                    $lookup: {
+                                        from: "tasks",
+                                        localField: "taskIdObj",
+                                        foreignField: "_id",
+                                        as: "taskDetails"
+                                    }
+                                },
+                                { $unwind: "$taskDetails" },
+
+                                { $match: { "taskDetails.status": "completed" } }
+                            ],
+                            as: "completedProposals"
+                        }
+                    },
+
+                    {
+                        $addFields: {
+                            completedTasksCount: { $size: "$completedProposals" }
+                        }
+                    },
+                    {
+                        $project: {
+                            completedProposals: 0
+                        }
+                    }
+                ]).toArray();
+
+                if (result.length === 0) {
+                    return res.status(404).send({ success: false, message: "Freelancer not found" });
+                }
+
+                res.send(result[0]);
+
+            } catch (error) {
+                console.error("Error fetching freelancer full profile stats:", error);
+                res.status(500).send({ success: false, message: "Internal server error" });
+            }
+        });
+        app.get('/api/top-freelancers', async (req, res) => {
+            try {
+                const topFreelancers = await usersCollection.aggregate([
+                    { $match: { role: 'freelancer' } },
+                    {
+                        $lookup: {
+                            from: "proposals",
+                            let: { fId: { $toString: "$_id" } },
+                            pipeline: [
+                                { $match: { $expr: { $eq: ["$freelancerId", "$$fId"] } } },
+                                {
+                                    $addFields: {
+                                        taskIdObj: { $toObjectId: "$taskId" }
+                                    }
+                                },
+                                {
+                                    $lookup: {
+                                        from: "tasks",
+                                        localField: "taskIdObj",
+                                        foreignField: "_id",
+                                        as: "taskDetails"
+                                    }
+                                },
+                                { $unwind: "$taskDetails" },
+                                { $match: { "taskDetails.status": "completed" } }
+                            ],
+                            as: "completedProposals"
+                        }
+                    },
+                    {
+                        $addFields: {
+                            completedTasksCount: { $size: "$completedProposals" },
+                            skillsCount: {
+                                $cond: {
+                                    if: { $isArray: "$skills" },
+                                    then: { $size: "$skills" },
+                                    else: 0
+                                }
+                            }
+                        }
+                    },
+                    {
+                        $sort: {
+                            completedTasksCount: -1,
+                            skillsCount: -1
+                        }
+                    },
+                    { $limit: 4 },
+                    {
+                        $project: {
+                            completedProposals: 0,
+                            skillsCount: 0
+                        }
+                    }
+                ]).toArray();
+
+                res.status(200).send(topFreelancers);
+            } catch (error) {
+                console.error("Error fetching top freelancers:", error);
+                res.status(500).send({ success: false, message: "Internal server error", error: error.message });
+            }
+        });
 
         app.post('/api/tasks', verifyToken, clientVerify, async (req, res) => {
             const task = req.body
@@ -347,17 +497,33 @@ async function run() {
                 const totalUsers = await usersCollection.countDocuments();
                 const totalTasks = await taskscollection.countDocuments();
                 const inProgressTasks = await taskscollection.countDocuments({ status: 'in progress' });
+                const stats = await paymentsCollection.aggregate([
+                    {
+                        $group: {
+                            _id: null,
+                            totalRevenue: { $sum: "$amount" }
+                        }
+                    }
+                ]).toArray();
+
+                const totalRevenue = stats.length > 0 ? stats[0].totalRevenue : 0;
 
                 res.send({
                     totalUsers,
                     totalTasks,
-                    inProgressTasks
+                    inProgressTasks,
+                    totalRevenue
+
                 });
             } catch (error) {
                 console.error("Error fetching stats:", error);
                 res.status(500).send({ message: "Failed to fetch dashboard stats" });
             }
         });
+        app.get('/api/admin/transactions', async (req, res) => {
+            const result = await paymentsCollection.find().toArray()
+            res.send(result)
+        })
 
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
